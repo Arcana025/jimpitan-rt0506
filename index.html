@@ -509,9 +509,10 @@
     </div>
 
     <!-- PWA + API eksternal Google Apps Script -->
+    <script src="./config.js"></script>
     <script>
-        // GANTI dengan URL Web App Google Apps Script milik Anda.
-        const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbz2Ko4P36sRr4aNWfA68A-zAjvT_DGRUjYGg6AxgOFZVTO9oQjCsq3k6Yqy8ol5__pE/exec';
+        // URL backend dibaca dari config.js agar tidak perlu mengedit file utama.
+        const GAS_API_URL = (window.JIMPITAN_CONFIG && window.JIMPITAN_CONFIG.GAS_API_URL) || '';
         window.GAS_API_URL = GAS_API_URL;
 
         if ('serviceWorker' in navigator) {
@@ -543,6 +544,7 @@
                 this.html5QrCode = null;
                 this.syncTimer = null;
                 this.isSyncing = false;
+                this.serverOnline = null;
                 this.initData();
                 this.setupOfflineMode();
                 this.checkAuthStatus();
@@ -555,8 +557,7 @@
                 this.updateConnectionStatus();
                 window.addEventListener('online', () => {
                     this.updateConnectionStatus();
-                    this.syncPendingChanges(true);
-                    this.loadFromGoogleSheets();
+                    setTimeout(() => { this.syncPendingChanges(true); this.loadFromGoogleSheets(); }, 700);
                 });
                 window.addEventListener('offline', () => this.updateConnectionStatus());
                 document.addEventListener('visibilitychange', () => {
@@ -591,12 +592,22 @@
             updateConnectionStatus() {
                 const dot = document.getElementById('syncStatus');
                 const label = document.getElementById('offlineStatus');
-                if (navigator.onLine) {
+                const configured = !!window.GAS_API_URL && window.GAS_API_URL.indexOf('PASTE_URL_') !== 0;
+                if (!navigator.onLine) {
+                    if (dot) dot.className = 'w-2 h-2 rounded-full bg-amber-400 sync-pending';
+                    if (label) label.textContent = 'OFFLINE';
+                } else if (!configured) {
+                    if (dot) dot.className = 'w-2 h-2 rounded-full bg-yellow-400';
+                    if (label) label.textContent = 'BELUM TERHUBUNG';
+                } else if (this.serverOnline === false) {
+                    if (dot) dot.className = 'w-2 h-2 rounded-full bg-red-400';
+                    if (label) label.textContent = 'SERVER GAGAL';
+                } else if (this.serverOnline === true) {
                     if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
                     if (label) label.textContent = 'ONLINE';
                 } else {
                     if (dot) dot.className = 'w-2 h-2 rounded-full bg-amber-400 sync-pending';
-                    if (label) label.textContent = 'OFFLINE';
+                    if (label) label.textContent = 'MENGHUBUNGKAN';
                 }
                 this.updateSyncBadge();
             }
@@ -692,6 +703,7 @@
                         else if (item.action === 'hapusWarga') result = await this.runServer('hapusWarga', item.payload);
                         else result = {success:false};
                         if (!result || result.success === false) throw new Error((result && result.error) || 'Sinkronisasi ditolak server');
+                        this.serverOnline = true;
                         current.shift();
                         this.saveSyncQueue(current);
                         synced++;
@@ -699,6 +711,7 @@
                     this.updateConnectionStatus();
                     if (showMessage && synced) showCustomAlert(synced + ' perubahan berhasil disinkronkan ke Google Sheets.');
                 } catch (err) {
+                    this.serverOnline = false;
                     this.updateConnectionStatus();
                     if (showMessage && synced) showCustomAlert(synced + ' perubahan tersinkron. Sisanya tetap dalam antrean.');
                 } finally {
@@ -751,6 +764,7 @@
                 try {
                     const data = await this.runServer('getInitialData');
                     if (data && data.success) {
+                        this.serverOnline = true;
                         // Ambil data server hanya setelah antrean lokal berhasil dikirim, agar perubahan offline tidak tertimpa.
                         if (data.warga && data.warga.length > 0) localStorage.setItem('jimpitan_warga', JSON.stringify(data.warga));
                         if (data.setoran) {
@@ -765,6 +779,7 @@
                         if(syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
                     } else throw new Error((data && data.error) || 'Data server gagal dibaca');
                 } catch (err) {
+                    this.serverOnline = false;
                     if(syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-amber-400 sync-pending';
                     showCustomAlert('Google Sheets tidak tersedia. Aplikasi tetap berjalan OFFLINE.');
                 }
