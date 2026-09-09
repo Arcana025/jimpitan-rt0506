@@ -427,7 +427,7 @@
     <div id="printQRArea" class="hidden print-section"></div>
 
     <!-- MODALS -->
-    <!-- Modal Scanner Pilihan Kamera (DIREVISI TOTAL) -->
+    <!-- Modal Scanner QR V3.1: Scan QR sebagai opsi utama, Snapshot sebagai opsi kedua -->
     <div id="modalScanner" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 print-hide">
         <div class="bg-white rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl border border-slate-100">
             <div class="flex justify-between items-center border-b pb-3">
@@ -439,49 +439,58 @@
                 </button>
             </div>
             
-            <p class="text-xs text-slate-500 text-center leading-relaxed">Gunakan fitur <b>Snapshot</b> untuk membuka kamera secara langsung dan membaca kode QR.</p>
+            <p class="text-xs text-slate-500 text-center leading-relaxed">Gunakan <b>Scan QR Langsung</b> sebagai cara utama. Jika kamera live bermasalah, gunakan <b>Snapshot</b> sebagai pilihan kedua.</p>
 
             <div class="space-y-3">
-                <!-- Option 1: Kamera Bawaan HP (Menggunakan Tag Label agar Native tidak diblokir browser) -->
-                <label class="cursor-pointer w-full p-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs flex items-center justify-between shadow-md transition">
+                <!-- Opsi utama: Scan QR langsung dengan kamera belakang -->
+                <div class="w-full p-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs shadow-md transition">
+                    <button type="button" onclick="app.toggleLiveScanner()" class="w-full flex items-center justify-between text-left">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-white/15 rounded-xl flex items-center justify-center text-xl">
+                                <i class="fa-solid fa-qrcode"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-extrabold text-xs">Scan QR Langsung</h4>
+                                <p class="text-[10px] text-emerald-100 font-normal">OPS I UTAMA • Arahkan kamera ke QR warga</p>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-down text-xs text-emerald-100"></i>
+                    </button>
+                    <div id="liveScannerArea" class="hidden mt-3 space-y-2">
+                        <div id="qr-reader" class="w-full overflow-hidden rounded-2xl bg-slate-900 min-h-[220px] flex items-center justify-center border border-emerald-300/30"></div>
+                        <p class="text-[10px] text-center text-emerald-100 font-medium">Arahkan kamera belakang ke QR. Setelah terbaca, warga akan otomatis dipilih.</p>
+                    </div>
+                </div>
+
+                <!-- Opsi kedua: Snapshot kamera HP -->
+                <label class="cursor-pointer w-full p-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-xs flex items-center justify-between border border-slate-200 transition">
                     <input type="file" accept="image/*" capture="environment" onchange="app.handleQrFileInput(event)" class="hidden">
                     <div class="flex items-center gap-3">
-                        <div class="w-9 h-9 bg-emerald-500/30 rounded-xl flex items-center justify-center text-lg">
+                        <div class="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center text-lg text-amber-600">
                             <i class="fa-solid fa-camera"></i>
                         </div>
                         <div class="text-left">
-                            <h4 class="font-extrabold text-xs">Jepret Foto (Snapshot)</h4>
-                            <p class="text-[10px] text-emerald-100 font-normal">Kamera HP Langsung • Sangat Akurat</p>
-                        </div>
-                    </div>
-                    <i class="fa-solid fa-chevron-right text-xs text-emerald-200"></i>
-                </label>
-
-                <!-- Option 2: Upload Galeri (Native label) -->
-                <label class="cursor-pointer w-full p-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-xs flex items-center justify-between border border-slate-200 transition">
-                    <input type="file" accept="image/*" onchange="app.handleQrFileInput(event)" class="hidden">
-                    <div class="flex items-center gap-3">
-                        <div class="w-9 h-9 bg-slate-200 rounded-xl flex items-center justify-center text-lg text-slate-600">
-                            <i class="fa-solid fa-image"></i>
-                        </div>
-                        <div class="text-left">
-                            <h4 class="font-bold text-xs text-slate-800">Upload dari Galeri</h4>
-                            <p class="text-[10px] text-slate-400 font-normal">Gunakan foto QR dari memori HP</p>
+                            <h4 class="font-extrabold text-xs text-slate-800">Snapshot QR</h4>
+                            <p class="text-[10px] text-slate-400 font-normal">OPSI KEDUA • Jepret foto QR dengan kamera HP</p>
                         </div>
                     </div>
                     <i class="fa-solid fa-chevron-right text-xs text-slate-400"></i>
                 </label>
 
-                <!-- Option 3: Live Video Fallback -->
-                <div class="pt-2">
-                    <button type="button" onclick="app.toggleLiveScanner()" class="w-full py-2 text-slate-400 hover:text-emerald-700 text-[11px] font-bold flex items-center justify-center gap-1.5">
-                        <i class="fa-solid fa-video text-xs"></i> Mode Stream (Opsional)
-                    </button>
-                    <div id="liveScannerArea" class="hidden mt-3 space-y-2">
-                        <div id="qr-reader" class="w-full overflow-hidden rounded-2xl bg-slate-900 min-h-[200px] flex items-center justify-center border border-slate-700"></div>
-                        <p class="text-[10px] text-center text-amber-600 font-medium">*Gunakan Snapshot jika mode ini bermasalah</p>
+                <!-- Opsi ketiga: Galeri -->
+                <label class="cursor-pointer w-full p-3.5 bg-white hover:bg-slate-50 text-slate-700 rounded-2xl font-bold text-xs flex items-center justify-between border border-slate-200 transition">
+                    <input type="file" accept="image/*" onchange="app.handleQrFileInput(event)" class="hidden">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 bg-slate-100 rounded-xl flex items-center justify-center text-lg text-slate-600">
+                            <i class="fa-solid fa-image"></i>
+                        </div>
+                        <div class="text-left">
+                            <h4 class="font-bold text-xs text-slate-800">Upload dari Galeri</h4>
+                            <p class="text-[10px] text-slate-400 font-normal">Alternatif jika sudah memiliki foto QR</p>
+                        </div>
                     </div>
-                </div>
+                    <i class="fa-solid fa-chevron-right text-xs text-slate-400"></i>
+                </label>
             </div>
 
             <button onclick="app.closeScannerModal()" class="w-full py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition">Tutup Modal</button>
@@ -1415,8 +1424,17 @@
             }
 
             // MODAL SCANNER LOGIKA DIPERBAIKI TOTAL AGAR AKURAT MEMBACA BERBAGAI UKURAN QR
-            openScannerModal() {
-                document.getElementById('modalScanner').classList.remove('hidden');
+            async openScannerModal() {
+                const modal = document.getElementById('modalScanner');
+                if (!modal) return;
+                modal.classList.remove('hidden');
+                // Scan QR langsung menjadi mode utama saat modal dibuka.
+                // Jika izin kamera gagal, modal tetap terbuka agar Snapshot/Galeri bisa dipakai.
+                setTimeout(() => {
+                    if (document.getElementById('liveScannerArea')?.classList.contains('hidden')) {
+                        this.toggleLiveScanner();
+                    }
+                }, 120);
             }
 
             async closeScannerModal() {
@@ -1589,7 +1607,7 @@
                         showCustomAlert('QR tidak ditemukan. Dekatkan QR, pastikan seluruh kotak QR terlihat, dan hindari pantulan cahaya.');
                     }
                 } catch (err) {
-                    console.error('QR V2 photo scan error:', err);
+                    console.error('QR V3.1 photo scan error:', err);
                     showCustomAlert('Gagal membaca foto QR. Coba foto ulang dengan QR lebih dekat dan fokus.');
                 } finally {
                     e.target.value = '';
@@ -1644,7 +1662,7 @@
                         () => {}
                     );
                 } catch (err) {
-                    console.error('QR V2 live scanner error:', err);
+                    console.error('QR V3.1 live scanner error:', err);
                     await this.stopLiveScanner();
                     liveArea.classList.add('hidden');
                     showCustomAlert('Kamera live tidak dapat digunakan. Silakan pilih Jepret Foto atau Galeri.');
