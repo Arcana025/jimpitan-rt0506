@@ -768,6 +768,34 @@
                 if (!localStorage.getItem('jimpitan_sync_queue')) localStorage.setItem('jimpitan_sync_queue', JSON.stringify([]));
             }
 
+            // DIAGNOSTIK REKAP: menyimpan snapshot mentah dari server dan hasil lokal
+            // agar sumber selisih Rp45.000/Rp47.000 dapat dibuktikan tanpa mengubah QR.
+            getDiagnosticSummary() {
+                const local = this.getSetoranList();
+                const totalLocal = local.reduce((sum, s) => sum + (Number(s.nominal) || 0), 0);
+                const byDate = local.filter(s => s.tanggal === this.getLocalDateString());
+                const totalToday = byDate.reduce((sum, s) => sum + (Number(s.nominal) || 0), 0);
+                const server = this._lastServerSetoran || [];
+                const totalServer = server.reduce((sum, s) => sum + (Number(s.nominal) || 0), 0);
+                const serverToday = server.filter(s => this.normalizeDate(s.tanggal) === this.getLocalDateString());
+                const totalServerToday = serverToday.reduce((sum, s) => sum + (Number(s.nominal) || 0), 0);
+                const queue = this.getSyncQueue();
+                return {
+                    serverCount: server.length, serverTotal: totalServer,
+                    serverTodayCount: serverToday.length, serverTodayTotal: totalServerToday,
+                    localCount: local.length, localTotal: totalLocal,
+                    localTodayCount: byDate.length, localTodayTotal: totalToday,
+                    pendingCount: queue.length,
+                    generatedAt: new Date().toLocaleString('id-ID')
+                };
+            }
+
+            exportDiagnosticSummary() {
+                const d = this.getDiagnosticSummary();
+                console.table(d);
+                return d;
+            }
+
             async loadFromGoogleSheets(options = {}) {
                 const silent = !!options.silent;
                 if (!navigator.onLine || ((!window.GAS_API_URL || window.GAS_API_URL.indexOf('PASTE_URL_') === 0) && !(typeof google !== 'undefined' && google.script && google.script.run))) {
@@ -806,6 +834,8 @@
                             }
 
                             if (data.setoran) {
+                                // Simpan snapshot server sebelum digabung dengan data pending lokal.
+                                this._lastServerSetoran = data.setoran.map(s => ({...s, nominal: Number(s.nominal) || 0, tanggal: this.normalizeDate(s.tanggal)}));
                                 data.setoran.forEach(s => { s.nominal = Number(s.nominal) || 0; s.tanggal = this.normalizeDate(s.tanggal); });
                                 const setoranMap = new Map(data.setoran.map(s => [String(s.id), s]));
                                 pending.filter(q => q.action === 'simpanSetoran').forEach(q => {
@@ -1870,7 +1900,11 @@
                     // kembali transaksi yang masih pending.
                     await this.syncPendingChanges(false);
                     const ok = await this.loadFromGoogleSheets({silent:false, skipSync:true});
-                    if (ok) showCustomAlert('Data terbaru berhasil dimuat dari Google Sheets.');
+                    if (ok) {
+                        const d = this.getDiagnosticSummary();
+                        showCustomAlert(`Sinkron selesai. SERVER hari ini: Rp ${d.serverTodayTotal.toLocaleString('id-ID')} (${d.serverTodayCount} transaksi). LOKAL hari ini: Rp ${d.localTodayTotal.toLocaleString('id-ID')} (${d.localTodayCount} transaksi). Pending: ${d.pendingCount}.`);
+                        console.table(d);
+                    }
                 } finally {
                     if(icon) icon.classList.remove('fa-spin');
                 }
@@ -1885,6 +1919,7 @@
         });
 
         window.addEventListener('DOMContentLoaded', () => { app = new JimpitanApp(); });
+        window.getJimpitanDiagnostic = () => app ? app.exportDiagnosticSummary() : null;
     </script>
     <script>
         // Memudahkan instalasi PWA pada browser yang mendukung beforeinstallprompt.
