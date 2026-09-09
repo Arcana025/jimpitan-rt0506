@@ -683,6 +683,8 @@
                     params.set('api', '1');
                     params.set('action', action);
                     params.set('callback', callbackName);
+                    // Cache-buster: setiap pembacaan getInitialData harus benar-benar mengambil data terbaru.
+                    params.set('_ts', Date.now().toString());
                     if (payload !== undefined && payload !== null) params.set('payload', JSON.stringify(payload));
                     script.src = apiUrl + (apiUrl.indexOf('?') >= 0 ? '&' : '?') + params.toString();
                     document.head.appendChild(script);
@@ -773,11 +775,12 @@
                     return false;
                 }
 
-                // Jangan pernah menimpa data lokal dengan data server jika masih ada antrean offline.
-                const synced = await this.syncPendingChanges(false);
-                if (!synced && this.getSyncQueue().length) {
-                    this.updateConnectionStatus();
-                    return false;
+                // Kirim antrean terlebih dahulu, tetapi JANGAN menghentikan pembacaan server
+                // hanya karena ada antrean yang gagal. Server tetap harus dibaca agar HP admin
+                // tidak tertahan pada snapshot localStorage yang lama. Data yang masih pending
+                // akan digabungkan kembali setelah snapshot server diterima.
+                if (!options.skipSync) {
+                    await this.syncPendingChanges(false);
                 }
 
                 const syncDot = document.getElementById('syncStatus');
@@ -790,14 +793,37 @@
                         const data = await this.runServer('getInitialData');
                         if (data && data.success) {
                             this.serverOnline = true;
-                            if (data.warga) localStorage.setItem('jimpitan_warga', JSON.stringify(data.warga));
+                            // Snapshot server menjadi sumber utama. Perubahan yang masih berada
+                            // di antrean lokal digabungkan kembali agar tidak hilang.
+                            const pending = this.getSyncQueue();
+
+                            if (data.warga) {
+                                data.warga.forEach(w => { if (w) w.noRumah = w.noRumah ?? w.rumah; });
+                                const wargaMap = new Map(data.warga.map(w => [String(w.id), w]));
+                                pending.filter(q => q.action === 'simpanWarga').forEach(q => { if (q.payload && q.payload.id) wargaMap.set(String(q.payload.id), q.payload); });
+                                pending.filter(q => q.action === 'hapusWarga').forEach(q => { if (q.payload) wargaMap.delete(String(q.payload.id || q.payload)); });
+                                localStorage.setItem('jimpitan_warga', JSON.stringify(Array.from(wargaMap.values())));
+                            }
+
                             if (data.setoran) {
                                 data.setoran.forEach(s => { s.nominal = Number(s.nominal) || 0; s.tanggal = this.normalizeDate(s.tanggal); });
-                                localStorage.setItem('jimpitan_setoran', JSON.stringify(data.setoran));
+                                const setoranMap = new Map(data.setoran.map(s => [String(s.id), s]));
+                                pending.filter(q => q.action === 'simpanSetoran').forEach(q => {
+                                    if (q.payload && q.payload.id) {
+                                        const x = {...q.payload, nominal: Number(q.payload.nominal) || 0, tanggal: this.normalizeDate(q.payload.tanggal)};
+                                        setoranMap.set(String(x.id), x);
+                                    }
+                                });
+                                pending.filter(q => q.action === 'hapusSetoran').forEach(q => { if (q.payload) setoranMap.delete(String(q.payload.id || q.payload)); });
+                                localStorage.setItem('jimpitan_setoran', JSON.stringify(Array.from(setoranMap.values())));
                             }
+
                             if (data.pengeluaran) {
                                 data.pengeluaran.forEach(x => { x.nominal = Number(x.nominal) || 0; x.date = this.normalizeDate(x.date); });
-                                localStorage.setItem('jimpitan_expense', JSON.stringify(data.pengeluaran));
+                                const expenseMap = new Map(data.pengeluaran.map(x => [String(x.id), x]));
+                                pending.filter(q => q.action === 'simpanPengeluaran').forEach(q => { if (q.payload && q.payload.id) expenseMap.set(String(q.payload.id), {...q.payload, nominal: Number(q.payload.nominal) || 0, date: this.normalizeDate(q.payload.date)}); });
+                                pending.filter(q => q.action === 'hapusPengeluaran').forEach(q => { if (q.payload) expenseMap.delete(String(q.payload.id || q.payload)); });
+                                localStorage.setItem('jimpitan_expense', JSON.stringify(Array.from(expenseMap.values())));
                             }
                             this.refreshAllUI();
                             if(syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
@@ -1829,17 +1855,25 @@
                 }
             }
 
-            manualRefresh() {
+            async manualRefresh() {
                 const icon = document.getElementById('refreshIcon');
                 if(icon) icon.classList.add('fa-spin');
-                if (navigator.onLine) {
-                    this.syncPendingChanges(true);
-                    this.loadFromGoogleSheets();
-                } else {
-                    this.updateConnectionStatus();
-                    showCustomAlert('Mode OFFLINE: data tersimpan di perangkat dan akan disinkronkan saat internet kembali.');
+                try {
+                    if (!navigator.onLine) {
+                        this.updateConnectionStatus();
+                        showCustomAlert('Mode OFFLINE: data tersimpan di perangkat dan akan disinkronkan saat internet kembali.');
+                        return;
+                    }
+                    // Urutkan: kirim antrean dahulu, baru ambil snapshot server terbaru.
+                    // Jangan blokir refresh hanya karena ada antrean lokal.
+                    // loadFromGoogleSheets akan mengambil snapshot server dan menggabungkan
+                    // kembali transaksi yang masih pending.
+                    await this.syncPendingChanges(false);
+                    const ok = await this.loadFromGoogleSheets({silent:false, skipSync:true});
+                    if (ok) showCustomAlert('Data terbaru berhasil dimuat dari Google Sheets.');
+                } finally {
+                    if(icon) icon.classList.remove('fa-spin');
                 }
-                setTimeout(() => { if(icon) icon.classList.remove('fa-spin'); }, 1500);
             }
         }
 
