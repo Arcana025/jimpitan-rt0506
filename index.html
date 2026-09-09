@@ -681,14 +681,15 @@
             }
 
             async syncPendingChanges(showMessage) {
-                if (this.isSyncing || !navigator.onLine) return;
-                if ((!window.GAS_API_URL || window.GAS_API_URL.indexOf('PASTE_URL_') === 0) && !(typeof google !== 'undefined' && google.script && google.script.run)) return;
+                if (this.isSyncing || !navigator.onLine) return this.getSyncQueue().length === 0;
+                if ((!window.GAS_API_URL || window.GAS_API_URL.indexOf('PASTE_URL_') === 0) && !(typeof google !== 'undefined' && google.script && google.script.run)) return false;
                 const queue = this.getSyncQueue();
-                if (!queue.length) { this.updateConnectionStatus(); return; }
+                if (!queue.length) { this.updateConnectionStatus(); return true; }
                 this.isSyncing = true;
                 const dot = document.getElementById('syncStatus');
                 if (dot) dot.className = 'w-2 h-2 rounded-full bg-amber-400 sync-pending';
                 let synced = 0;
+                let failed = false;
                 try {
                     while (true) {
                         const current = this.getSyncQueue();
@@ -708,16 +709,19 @@
                         this.saveSyncQueue(current);
                         synced++;
                     }
-                    this.updateConnectionStatus();
-                    if (showMessage && synced) showCustomAlert(synced + ' perubahan berhasil disinkronkan ke Google Sheets.');
                 } catch (err) {
+                    failed = true;
+                    console.warn('Sinkronisasi tertunda:', err);
                     this.serverOnline = false;
-                    this.updateConnectionStatus();
-                    if (showMessage && synced) showCustomAlert(synced + ' perubahan tersinkron. Sisanya tetap dalam antrean.');
                 } finally {
                     this.isSyncing = false;
                     this.updateSyncBadge();
+                    this.updateConnectionStatus();
                 }
+                if (showMessage && synced) {
+                    showCustomAlert(failed ? synced + ' perubahan tersinkron. Sisanya tetap dalam antrean.' : synced + ' perubahan berhasil disinkronkan ke Google Sheets.');
+                }
+                return !failed && this.getSyncQueue().length === 0;
             }
 
             // Fungsi untuk parsing JSON dengan aman
@@ -753,37 +757,66 @@
                 if (!localStorage.getItem('jimpitan_sync_queue')) localStorage.setItem('jimpitan_sync_queue', JSON.stringify([]));
             }
 
-            async loadFromGoogleSheets() {
+            async loadFromGoogleSheets(options = {}) {
+                const silent = !!options.silent;
                 if (!navigator.onLine || ((!window.GAS_API_URL || window.GAS_API_URL.indexOf('PASTE_URL_') === 0) && !(typeof google !== 'undefined' && google.script && google.script.run))) {
                     this.updateConnectionStatus();
-                    return;
+                    return false;
                 }
-                await this.syncPendingChanges(false);
+
+                // Jangan pernah menimpa data lokal dengan data server jika masih ada antrean offline.
+                const synced = await this.syncPendingChanges(false);
+                if (!synced && this.getSyncQueue().length) {
+                    this.updateConnectionStatus();
+                    return false;
+                }
+
                 const syncDot = document.getElementById('syncStatus');
                 if(syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-amber-400 sync-pending';
-                try {
-                    const data = await this.runServer('getInitialData');
-                    if (data && data.success) {
-                        this.serverOnline = true;
-                        // Ambil data server hanya setelah antrean lokal berhasil dikirim, agar perubahan offline tidak tertimpa.
-                        if (data.warga && data.warga.length > 0) localStorage.setItem('jimpitan_warga', JSON.stringify(data.warga));
-                        if (data.setoran) {
-                            data.setoran.forEach(s => { s.nominal = Number(s.nominal) || 0; });
-                            localStorage.setItem('jimpitan_setoran', JSON.stringify(data.setoran));
+
+                let lastError = null;
+                // Retry ringan untuk mengatasi server GAS yang kadang lambat / cold start.
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        const data = await this.runServer('getInitialData');
+                        if (data && data.success) {
+                            this.serverOnline = true;
+                            if (data.warga) localStorage.setItem('jimpitan_warga', JSON.stringify(data.warga));
+                            if (data.setoran) {
+                                data.setoran.forEach(s => { s.nominal = Number(s.nominal) || 0; s.tanggal = this.normalizeDate(s.tanggal); });
+                                localStorage.setItem('jimpitan_setoran', JSON.stringify(data.setoran));
+                            }
+                            if (data.pengeluaran) {
+                                data.pengeluaran.forEach(x => { x.nominal = Number(x.nominal) || 0; x.date = this.normalizeDate(x.date); });
+                                localStorage.setItem('jimpitan_expense', JSON.stringify(data.pengeluaran));
+                            }
+                            this.refreshAllUI();
+                            if(syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+                            this.updateConnectionStatus();
+                            return true;
                         }
-                        if (data.pengeluaran) {
-                            data.pengeluaran.forEach(x => { x.nominal = Number(x.nominal) || 0; });
-                            localStorage.setItem('jimpitan_expense', JSON.stringify(data.pengeluaran));
-                        }
-                        this.refreshAllUI();
-                        if(syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-                    } else throw new Error((data && data.error) || 'Data server gagal dibaca');
-                } catch (err) {
-                    this.serverOnline = false;
-                    if(syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-amber-400 sync-pending';
-                    showCustomAlert('Google Sheets tidak tersedia. Aplikasi tetap berjalan OFFLINE.');
+                        throw new Error((data && data.error) || 'Data server gagal dibaca');
+                    } catch (err) {
+                        lastError = err;
+                        if (attempt < 3) await new Promise(r => setTimeout(r, 900 * attempt));
+                    }
                 }
+                this.serverOnline = false;
+                if(syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-amber-400 sync-pending';
                 this.updateConnectionStatus();
+                if (!silent) showCustomAlert('Server sedang tidak merespons. Data terakhir tetap digunakan; aplikasi akan mencoba lagi otomatis.');
+                console.warn('Gagal mengambil data server:', lastError);
+                return false;
+            }
+
+            normalizeDate(value) {
+                if (!value) return '';
+                if (value instanceof Date) return this.getLocalDateString(value);
+                let s = String(value).trim();
+                if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0,10);
+                let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+                if (m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+                return s;
             }
 
             checkAuthStatus() {
@@ -860,7 +893,7 @@
             initAppLoaded() {
                 const today = this.getLocalDateString();
                 const dateInputs = ['inputTanggal', 'expDate', 'inputTanggalRekap'];
-                dateInputs.forEach(id => { if(document.getElementById(id)) document.getElementById(id).value = today; });
+                dateInputs.forEach(id => { const el = document.getElementById(id); if(el && !el.value) el.value = today; });
                 
                 this.refreshAllUI();
                 this.switchTab(this.activeTab);
@@ -905,8 +938,8 @@
             }
 
             getWargaList() { return this.safeJSONParse('jimpitan_warga'); }
-            getSetoranList() { return this.safeJSONParse('jimpitan_setoran').map(s => ({...s, nominal: Number(s.nominal) || 0})); }
-            getExpenseList() { return this.safeJSONParse('jimpitan_expense').map(x => ({...x, nominal: Number(x.nominal) || 0})); }
+            getSetoranList() { return this.safeJSONParse('jimpitan_setoran').map(s => ({...s, tanggal: this.normalizeDate(s.tanggal), nominal: Number(s.nominal) || 0})); }
+            getExpenseList() { return this.safeJSONParse('jimpitan_expense').map(x => ({...x, date: this.normalizeDate(x.date), nominal: Number(x.nominal) || 0})); }
 
             markUnpaidAsZero() {
                 if(this.currentRole === 'warga') return;
