@@ -272,7 +272,7 @@
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold text-slate-500 mb-1">Tanggal Aktual</label>
-                            <input type="date" id="inputTanggalRekap" onchange="app.renderDashboardRekap()" class="w-full p-2 border rounded-lg text-xs font-bold bg-slate-50">
+                            <input type="date" id="inputTanggalRekap" onchange="app.onRekapDateChange(this.value)" class="w-full p-2 border rounded-lg text-xs font-bold bg-slate-50">
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold text-slate-500 mb-1">Wilayah RT</label>
@@ -913,21 +913,34 @@
                 const dateInputs = ['inputTanggal', 'expDate', 'inputTanggalRekap'];
                 dateInputs.forEach(id => { const el = document.getElementById(id); if(el && !el.value) el.value = today; });
                 const incomeDateEl = document.getElementById('inputTanggal');
-                this.selectedIncomeDate = this.normalizeDate(incomeDateEl?.value) || today;
+                const rekapDateEl = document.getElementById('inputTanggalRekap');
+                const initialDate = this.normalizeDate(this.selectedIncomeDate || incomeDateEl?.value || rekapDateEl?.value) || today;
+                this.setSelectedDate(initialDate, {renderRekap:false, renderWa:false});
                 this.refreshAllUI();
                 this.switchTab(this.activeTab);
             }
 
-            onIncomeDateChange(value) {
+            // V3.3.2 FIX: satu tanggal utama untuk Input, Rekap, dan WA.
+            setSelectedDate(value, options = {}) {
                 const normalized = this.normalizeDate(value) || this.getLocalDateString();
                 this.selectedIncomeDate = normalized;
-                const input = document.getElementById('inputTanggal');
-                if (input && input.value !== normalized) input.value = normalized;
-                // Hitung ulang hanya berdasarkan tanggal yang dipilih.
-                // Jangan mengubah tanggal kembali ke hari ini saat UI di-refresh.
+                const income = document.getElementById('inputTanggal');
+                const rekap = document.getElementById('inputTanggalRekap');
+                if (income && income.value !== normalized) income.value = normalized;
+                if (rekap && rekap.value !== normalized) rekap.value = normalized;
                 this.renderStatusWarga();
                 this.renderRecentSetoran();
                 this.calculateStats();
+                if (options.renderRekap !== false) this.renderDashboardRekap();
+                if (options.renderWa !== false && this.activeTab === 'wa') this.generateWaText();
+            }
+
+            onIncomeDateChange(value) {
+                this.setSelectedDate(value);
+            }
+
+            onRekapDateChange(value) {
+                this.setSelectedDate(value);
             }
 
             refreshAllUI() {
@@ -942,6 +955,10 @@
             }
 
             switchTab(tabName) {
+                const wargaBlocked = ['setor', 'qr', 'pengeluaran', 'warga', 'wa'];
+                const petugasBlocked = ['pengeluaran', 'warga'];
+                if (this.currentRole === 'warga' && wargaBlocked.includes(tabName)) tabName = 'status';
+                if (this.currentRole === 'petugas' && petugasBlocked.includes(tabName)) tabName = 'status';
                 this.activeTab = tabName;
                 document.querySelectorAll('.tab-view').forEach(el => el.classList.add('hidden'));
                 const viewEl = document.getElementById(`tab-view-${tabName}`);
@@ -1231,53 +1248,12 @@
                     endDate = customDate;
                 }
 
-                const requestToken = Date.now() + '_' + Math.random();
-                this.rekapRequestToken = requestToken;
-
+                // V3.3.2 FIX: gunakan snapshot lokal yang terakhir berhasil disinkronkan
+                // oleh loadFromGoogleSheets(). Jangan memanggil getRekapData yang tidak ada
+                // pada deployment GAS lama karena itu membuat Rekap selalu "Server gagal".
+                // Saat online, getInitialData() sudah menjadi sumber sinkronisasi utama.
                 let warga = this.getWargaList();
                 let setoran = this.getSetoranList();
-
-                if (navigator.onLine) {
-                    try {
-                        const result = await this.runServer('getRekapData', {
-                            startDate: startDate,
-                            endDate: endDate,
-                            filterRt: filterRt
-                        });
-
-                        // Abaikan jawaban lama jika user sudah mengganti tanggal/filter.
-                        if (this.rekapRequestToken !== requestToken) return;
-
-                        if (!result || !result.success) throw new Error((result && result.error) || 'Rekap server gagal.');
-
-                        warga = Array.isArray(result.warga) ? result.warga : [];
-                        setoran = (Array.isArray(result.setoran) ? result.setoran : []).map(s => ({
-                            ...s,
-                            tanggal: this.normalizeDate(s.tanggal),
-                            nominal: Number(s.nominal) || 0
-                        }));
-
-                        // Simpan snapshot server agar perangkat tetap punya data terakhir
-                        // jika koneksi terputus setelah rekap berhasil dimuat.
-                        localStorage.setItem('jimpitan_warga', JSON.stringify(
-                            this.getWargaList().length ? this.getWargaList() : warga
-                        ));
-                        this.serverOnline = true;
-                    } catch (err) {
-                        console.warn('Rekap kanonik gagal:', err);
-                        // Jangan menampilkan total lokal seolah-olah pasti sama dengan server.
-                        if (navigator.onLine) {
-                            if (document.getElementById('kpiTotalNominal')) document.getElementById('kpiTotalNominal').innerText = 'Server gagal';
-                            if (document.getElementById('kpiWargaSetor')) document.getElementById('kpiWargaSetor').innerText = '—';
-                            if (document.getElementById('kpiWargaBelum')) document.getElementById('kpiWargaBelum').innerText = '—';
-                            if (document.getElementById('kpiPersentase')) document.getElementById('kpiPersentase').innerText = '—';
-                            if (document.getElementById('kpiProgressBar')) document.getElementById('kpiProgressBar').style.width = '0%';
-                            const body = document.getElementById('tabelDetailWarga');
-                            if (body) body.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-rose-500 font-bold">Rekap server belum dapat dibaca. Tekan refresh setelah koneksi normal.</td></tr>`;
-                            return;
-                        }
-                    }
-                }
 
                 let isDateInRange = (tgl) => {
                     if(!tgl) return false;
@@ -1903,60 +1879,54 @@
 
             generateWaText() {
                 const type = document.getElementById('waReportType')?.value || 'DAILY';
-                const allSetoran = this.getSetoranList();
                 const wargaList = this.getWargaList();
                 const wargaMap = Object.fromEntries(wargaList.map(w => [String(w.id), w]));
+                const selectedDate = this.normalizeDate(
+                    this.selectedIncomeDate ||
+                    document.getElementById('inputTanggal')?.value ||
+                    document.getElementById('inputTanggalRekap')?.value
+                ) || this.getLocalDateString();
 
-                // V3.3.2: WA mengikuti tanggal utama yang dipilih pada Input Setoran.
-                // inputTanggalRekap tetap dipakai sebagai fallback untuk kompatibilitas.
-                const inputTanggal = this.normalizeDate(document.getElementById('inputTanggal')?.value);
-                const rekapTanggal = this.normalizeDate(document.getElementById('inputTanggalRekap')?.value);
-                const selectedDate = inputTanggal || this.normalizeDate(this.selectedIncomeDate) || rekapTanggal || this.getLocalDateString();
+                // Selalu samakan kedua kalender agar Input, Rekap, dan WA tidak berbeda.
                 this.selectedIncomeDate = selectedDate;
+                const income = document.getElementById('inputTanggal');
+                const rekap = document.getElementById('inputTanggalRekap');
+                if (income) income.value = selectedDate;
+                if (rekap) rekap.value = selectedDate;
 
-                const rekapInput = document.getElementById('inputTanggalRekap');
-                if (rekapInput && rekapInput.value !== selectedDate) rekapInput.value = selectedDate;
+                const allSetoran = this.getSetoranList();
+                let text = '';
 
-                // Anti-duplikat: satu warga + satu tanggal hanya dikirim sekali.
-                const uniqueMap = {};
-                allSetoran.forEach(s => {
-                    const tgl = this.normalizeDate(s.tanggal);
-                    const key = this.makeSetoranKey(tgl, s.wargaId) || String(s.id || `${tgl}|${s.wargaId || ''}`);
-                    if (!key) return;
-                    // Jika ada duplikat, prioritaskan data terakhir yang memiliki nominal.
-                    if (!uniqueMap[key] || (Number(s.nominal) || 0) >= (Number(uniqueMap[key].nominal) || 0)) {
-                        uniqueMap[key] = { ...s, tanggal: tgl, nominal: Number(s.nominal) || 0 };
-                    }
-                });
-                const setoran = Object.values(uniqueMap);
-                let text = "";
-
-                if(type === 'DAILY') {
-                    const daySetoran = setoran
+                if (type === 'DAILY') {
+                    const daySetoran = allSetoran
                         .filter(s => this.normalizeDate(s.tanggal) === selectedDate)
-                        .sort((a, b) => String(a.rt || '').localeCompare(String(b.rt || '')) || String(a.wargaId || '').localeCompare(String(b.wargaId || '')));
-                    const total = daySetoran.reduce((acc, s) => acc + (Number(s.nominal) || 0), 0);
+                        .sort((a,b) => {
+                            const wa = wargaMap[String(a.wargaId)] || {};
+                            const wb = wargaMap[String(b.wargaId)] || {};
+                            return String(wa.rt || a.rt || '').localeCompare(String(wb.rt || b.rt || '')) ||
+                                   String(wa.noRumah || a.rumah || '').localeCompare(String(wb.noRumah || b.rumah || ''), undefined, {numeric:true});
+                        });
+                    const total = daySetoran.reduce((sum, s) => sum + (Number(s.nominal) || 0), 0);
                     const tanggalTampil = selectedDate.split('-').reverse().join('/');
 
                     text += `📢 *LAPORAN HARIAN JIMPITAN*\n📅 Tgl: ${tanggalTampil}\n\nDaftar Setoran:\n`;
-                    if(daySetoran.length === 0) {
-                        text += `(Belum ada data)\n`;
+                    if (!daySetoran.length) {
+                        text += '(Belum ada data)\n';
                     } else {
                         daySetoran.forEach((s, i) => {
-                            const w = wargaMap[String(s.wargaId)] || { nama: s.nama || '-', noRumah: s.rumah || '-', rt: s.rt || s.RT || '-' };
+                            const w = wargaMap[String(s.wargaId)] || { nama:s.nama || '-', noRumah:s.rumah || '-', rt:s.rt || '-' };
                             const nominal = Number(s.nominal) || 0;
                             const metode = s.metode ? ` (${s.metode})` : '';
-                            text += `${i+1}. [${w.rt}] No.${w.noRumah} ${w.nama} - Rp ${nominal.toLocaleString('id-ID')}${metode}\n`;
+                            text += `${i + 1}. [${w.rt || s.rt || '-'}] No.${w.noRumah || s.rumah || '-'} ${w.nama || s.nama || '-'} - Rp ${nominal.toLocaleString('id-ID')}${metode}\n`;
                         });
                     }
                     text += `\n💰 *Total Tanggal Terpilih: Rp ${total.toLocaleString('id-ID')}*\nTerima kasih. 🙏`;
                 } else {
-                    const totalInc = setoran.reduce((a, b) => a + (Number(b.nominal) || 0), 0);
-                    const totalExp = this.getExpenseList().reduce((a, b) => a + (Number(b.nominal) || 0), 0);
+                    const totalInc = allSetoran.reduce((sum, s) => sum + (Number(s.nominal) || 0), 0);
+                    const totalExp = this.getExpenseList().reduce((sum, e) => sum + (Number(e.nominal) || 0), 0);
                     const saldo = totalInc - totalExp;
                     text += `📊 *RINGKASAN KAS JIMPITAN*\n\n💵 Pemasukan: Rp ${totalInc.toLocaleString('id-ID')}\n💸 Pengeluaran: Rp ${totalExp.toLocaleString('id-ID')}\n🏦 *Saldo Akhir: Rp ${saldo.toLocaleString('id-ID')}*\n\nTerima kasih! ✨`;
                 }
-
                 const preview = document.getElementById('waTextPreview');
                 if (preview) preview.value = text;
             }
