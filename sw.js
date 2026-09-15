@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jimpitan-rt0506-pwa-v5';
+const CACHE_NAME = 'jimpitan-rt0506-pwa-v6';
 const APP_SHELL = [
   './', './index.html', './manifest.json', './config.js', './sw.js',
   './icons/icon-192.png', './icons/icon-512.png'
