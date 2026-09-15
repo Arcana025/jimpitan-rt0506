@@ -328,6 +328,55 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- REKAP JIMPITAN BULANAN PER WARGA -->
+                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                    <div class="p-3 bg-slate-50 border-b flex items-center justify-between gap-2">
+                        <div>
+                            <h3 class="font-bold text-xs text-slate-800">Rekap Jimpitan Bulanan Per Warga</h3>
+                            <p id="monthlyWargaSubtitle" class="text-[10px] text-slate-500 mt-0.5">Pilih bulan pada Tanggal Aktual.</p>
+                        </div>
+                        <button onclick="app.printRekapBulananWarga()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold shadow flex items-center gap-1.5 whitespace-nowrap">
+                            <i class="fa-solid fa-print"></i> Cetak
+                        </button>
+                    </div>
+                    <div class="p-3 grid grid-cols-2 md:grid-cols-4 gap-2 bg-white border-b">
+                        <div class="bg-blue-50 border border-blue-100 rounded-xl p-2.5">
+                            <p class="text-[9px] text-blue-600 font-bold">Warga</p>
+                            <p id="monthlyKpiWarga" class="text-sm font-extrabold text-blue-800">0</p>
+                        </div>
+                        <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-2.5">
+                            <p class="text-[9px] text-emerald-600 font-bold">Total Setoran</p>
+                            <p id="monthlyKpiNominal" class="text-sm font-extrabold text-emerald-800">Rp 0</p>
+                        </div>
+                        <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-2.5">
+                            <p class="text-[9px] text-indigo-600 font-bold">Hari Setor</p>
+                            <p id="monthlyKpiHariSetor" class="text-sm font-extrabold text-indigo-800">0</p>
+                        </div>
+                        <div class="bg-rose-50 border border-rose-100 rounded-xl p-2.5">
+                            <p class="text-[9px] text-rose-600 font-bold">Hari Tidak Setor</p>
+                            <p id="monthlyKpiHariNihil" class="text-sm font-extrabold text-rose-800">0</p>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto max-h-[28rem]">
+                        <table class="w-full text-xs text-left whitespace-nowrap">
+                            <thead class="text-[10px] text-slate-500 uppercase bg-slate-100 sticky top-0">
+                                <tr>
+                                    <th class="px-3 py-2 text-center">No</th>
+                                    <th class="px-3 py-2">RT</th>
+                                    <th class="px-3 py-2">Rumah</th>
+                                    <th class="px-3 py-2">Nama Warga</th>
+                                    <th class="px-3 py-2 text-center">Hari Dinilai</th>
+                                    <th class="px-3 py-2 text-center">Hari Setor</th>
+                                    <th class="px-3 py-2 text-center">Tidak Setor</th>
+                                    <th class="px-3 py-2 text-center">Partisipasi</th>
+                                    <th class="px-3 py-2 text-right">Total Setoran</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabelRekapBulananWarga" class="divide-y divide-slate-100 bg-white"></tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- 4. QR RUMAH -->
@@ -414,6 +463,29 @@
                 </tr>
             </thead>
             <tbody id="printTableBody"></tbody>
+        </table>
+        <div style="margin-top:50px; display:flex; justify-content:flex-end;">
+            <div style="text-align:center;">
+                <p style="font-size:12px; margin-bottom:60px;">Mengetahui,<br>Pengurus / Bendahara RT</p>
+                <p style="font-weight:bold; border-bottom:1px solid black; display:inline-block; padding:0 20px;">......................................</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- AREA CETAK REKAP BULANAN PER WARGA -->
+    <div id="printMonthlyWargaArea" class="hidden print-section">
+        <div style="text-align:center; margin-bottom:20px;">
+            <h1 style="font-size:20px; font-weight:bold; margin:0; text-transform:uppercase;">Rekap Jimpitan Bulanan Per Warga</h1>
+            <p style="font-size:12px; margin:5px 0 0 0;" id="printMonthlyWargaSubtitle">Periode: - | Wilayah: -</p>
+        </div>
+        <table style="width:100%; border-collapse:collapse; font-size:10px;">
+            <thead>
+                <tr>
+                    <th>No</th><th>RT</th><th>Rumah</th><th>Nama Warga</th>
+                    <th>Hari Dinilai</th><th>Hari Setor</th><th>Tidak Setor</th><th>Partisipasi</th><th>Total Setoran</th>
+                </tr>
+            </thead>
+            <tbody id="printMonthlyWargaBody"></tbody>
         </table>
         <div style="margin-top:50px; display:flex; justify-content:flex-end;">
             <div style="text-align:center;">
@@ -1310,8 +1382,110 @@
 
                 const body = document.getElementById('tabelDetailWarga');
                 if(body) body.innerHTML = htmlRows || `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Tidak ada transaksi pada periode ini.</td></tr>`;
+
+                this.renderMonthlyWargaRecap();
             }
 
+            renderMonthlyWargaRecap() {
+                const body = document.getElementById('tabelRekapBulananWarga');
+                if (!body) return;
+
+                const selected = this.normalizeDate(document.getElementById('inputTanggalRekap')?.value || this.selectedIncomeDate) || this.getLocalDateString();
+                const monthKey = selected.substring(0, 7);
+                const [year, month] = monthKey.split('-').map(Number);
+                const daysInMonth = new Date(year, month, 0).getDate();
+                const today = this.getLocalDateString();
+                let daysToEvaluate = daysInMonth;
+                if (monthKey === today.substring(0, 7)) daysToEvaluate = Number(today.substring(8, 10));
+                else if (monthKey > today.substring(0, 7)) daysToEvaluate = 0;
+
+                const filterRt = document.getElementById('filterRTRekap')?.value || 'SEMUA';
+                const warga = this.getWargaList().filter(w => filterRt === 'SEMUA' || w.rt === filterRt);
+                const wargaMap = {};
+                warga.forEach(w => { wargaMap[String(w.id)] = w; });
+
+                // Satu warga + satu tanggal dihitung satu kali sesuai aturan anti-duplikat.
+                const monthly = this.getSetoranList().filter(s => {
+                    const t = this.normalizeDate(s.tanggal);
+                    if (!t || !t.startsWith(monthKey)) return false;
+                    const rt = wargaMap[String(s.wargaId)]?.rt || s.rt || '';
+                    return filterRt === 'SEMUA' || rt === filterRt;
+                });
+                const byWarga = {};
+                monthly.forEach(s => {
+                    const id = String(s.wargaId || '');
+                    if (!id) return;
+                    if (!byWarga[id]) byWarga[id] = {};
+                    byWarga[id][this.normalizeDate(s.tanggal)] = { ...s, nominal: Number(s.nominal) || 0 };
+                });
+
+                let totalNominal = 0, totalHariSetor = 0, totalHariNihil = 0;
+                const rows = warga.map((w, idx) => {
+                    const daily = byWarga[String(w.id)] || {};
+                    let hariSetor = 0, total = 0;
+                    Object.keys(daily).forEach(t => {
+                        const day = Number(t.substring(8, 10));
+                        if (day <= daysToEvaluate) {
+                            const nominal = Number(daily[t].nominal) || 0;
+                            total += nominal;
+                            if (nominal > 0) hariSetor++;
+                        }
+                    });
+                    const hariNihil = Math.max(0, daysToEvaluate - hariSetor);
+                    const partisipasi = daysToEvaluate > 0 ? Math.round((hariSetor / daysToEvaluate) * 100) : 0;
+                    totalNominal += total;
+                    totalHariSetor += hariSetor;
+                    totalHariNihil += hariNihil;
+                    const partClass = partisipasi >= 80 ? 'text-emerald-600' : (partisipasi >= 50 ? 'text-amber-600' : 'text-rose-600');
+                    return `
+                    <tr class="hover:bg-slate-50 border-b border-slate-100">
+                        <td class="px-3 py-2 text-center">${idx + 1}</td>
+                        <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded bg-slate-100 font-bold">${w.rt || '-'}</span></td>
+                        <td class="px-3 py-2 text-center">${w.noRumah || '-'}</td>
+                        <td class="px-3 py-2 font-semibold">${w.nama || '-'}</td>
+                        <td class="px-3 py-2 text-center font-bold">${daysToEvaluate} hari</td>
+                        <td class="px-3 py-2 text-center font-bold text-emerald-600">${hariSetor}</td>
+                        <td class="px-3 py-2 text-center font-bold text-rose-500">${hariNihil}</td>
+                        <td class="px-3 py-2 text-center font-bold ${partClass}">${partisipasi}%</td>
+                        <td class="px-3 py-2 text-right font-extrabold text-emerald-700">Rp ${total.toLocaleString('id-ID')}</td>
+                    </tr>`;
+                }).join('');
+
+                const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('id-ID', {month:'long', year:'numeric'});
+                const subtitle = document.getElementById('monthlyWargaSubtitle');
+                if (subtitle) subtitle.innerText = `${monthLabel} • ${filterRt === 'SEMUA' ? 'Semua RT' : filterRt} • ${daysToEvaluate} hari dinilai`;
+                if (document.getElementById('monthlyKpiWarga')) document.getElementById('monthlyKpiWarga').innerText = `${warga.length} warga`;
+                if (document.getElementById('monthlyKpiNominal')) document.getElementById('monthlyKpiNominal').innerText = `Rp ${totalNominal.toLocaleString('id-ID')}`;
+                if (document.getElementById('monthlyKpiHariSetor')) document.getElementById('monthlyKpiHariSetor').innerText = `${totalHariSetor} hari`;
+                if (document.getElementById('monthlyKpiHariNihil')) document.getElementById('monthlyKpiHariNihil').innerText = `${totalHariNihil} hari`;
+                body.innerHTML = rows || `<tr><td colspan="9" class="px-3 py-6 text-center text-slate-400">Belum ada data warga.</td></tr>`;
+            }
+
+            printRekapBulananWarga() {
+                const body = document.getElementById('tabelRekapBulananWarga');
+                const printArea = document.getElementById('printMonthlyWargaArea');
+                const printBody = document.getElementById('printMonthlyWargaBody');
+                if (!body || !printArea || !printBody) return;
+
+                const rows = Array.from(body.querySelectorAll('tr')).map(tr => {
+                    const cells = Array.from(tr.querySelectorAll('th,td')).map(td => `<td style="border:1px solid #cbd5e1;padding:5px;">${td.innerText}</td>`).join('');
+                    return `<tr>${cells}</tr>`;
+                }).join('');
+                printBody.innerHTML = rows;
+
+                const selected = this.normalizeDate(document.getElementById('inputTanggalRekap')?.value || this.selectedIncomeDate) || this.getLocalDateString();
+                const [y,m] = selected.substring(0,7).split('-').map(Number);
+                const label = new Date(y, m-1, 1).toLocaleDateString('id-ID', {month:'long', year:'numeric'});
+                const rt = document.getElementById('filterRTRekap')?.value || 'SEMUA';
+                const subtitle = document.getElementById('printMonthlyWargaSubtitle');
+                if (subtitle) subtitle.innerText = `Periode: ${label} | Wilayah: ${rt === 'SEMUA' ? 'Semua RT' : rt}`;
+
+                printArea.classList.add('active-print');
+                if(document.getElementById('printArea')) document.getElementById('printArea').classList.remove('active-print');
+                if(document.getElementById('printQRArea')) document.getElementById('printQRArea').classList.remove('active-print');
+                window.print();
+                printArea.classList.remove('active-print');
+            }
 
             renderQrGrid() {
                 const grid = document.getElementById('qrWargaGrid');
@@ -1828,6 +2002,7 @@
                 
                 document.getElementById('printArea').classList.add('active-print');
                 if(document.getElementById('printQRArea')) document.getElementById('printQRArea').classList.remove('active-print');
+                if(document.getElementById('printMonthlyWargaArea')) document.getElementById('printMonthlyWargaArea').classList.remove('active-print');
                 
                 window.print();
                 
